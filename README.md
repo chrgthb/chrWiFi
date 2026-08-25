@@ -157,4 +157,8 @@ The default project configuration currently points `src_dir` to `examples/Basic`
 
 ## License
 
-Add your preferred license (for example MIT) before publishing publicly if needed.
+This project is licensed under the MIT License.
+
+You are free to download, use, modify, and distribute this code, including for commercial use, as long as the MIT license notice is kept with substantial portions of the software.
+
+See [LICENSE](LICENSE) for the full text.
