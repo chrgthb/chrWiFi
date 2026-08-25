@@ -1,6 +1,6 @@
 {
   "name": "chrWiFi",
-  "version": "1.0.0",
+  "version": "v1.0.1",
   "description": "WiFi and WebServer depends on tzapu WiFiManager for Arduino framework",
   "keywords": "wifi, webserver, esp32, esp8266, arduino",
   "repository": {
