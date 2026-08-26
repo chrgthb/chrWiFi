@@ -35,6 +35,7 @@ namespace chrWiFi {
         uint32_t ip = 0;
         uint32_t gateway = 0;
         uint32_t netmask = 0;
+        uint32_t ssidHash = 0;
         uint32_t magic = VALID_DATA_MAGIC;
     };
     _NetConfig _configData;
@@ -61,17 +62,49 @@ namespace chrWiFi {
     }
 
     // No DHCP methods
-    bool _saveNetworkToRTCIfChanged(uint32_t ip, uint32_t gw, uint32_t mask) {
+    static uint32_t _hashSsid(const char* ssid) {
+        // FNV-1a (32-bit), simple and deterministic for small strings.
+        uint32_t hash = 2166136261u;
+        if (!ssid) return hash;
+
+        while (*ssid) {
+            hash ^= (uint8_t)(*ssid++);
+            hash *= 16777619u;
+        }
+        return hash;
+    }
+
+    void _clearNetworkFromRTC() {
+        _configData.ip = 0;
+        _configData.gateway = 0;
+        _configData.netmask = 0;
+        _configData.ssidHash = 0;
+        _configData.magic = 0;
+
+#if defined(ESP32)
+        rtcConfig = _configData;
+#elif defined(ESP8266)
+        ESP.rtcUserMemoryWrite(0, (uint32_t*)&_configData, sizeof(_configData));
+#endif
+    }
+
+    bool _saveNetworkToRTCIfChanged(uint32_t ip, uint32_t gw, uint32_t mask, const char* ssid) {
         if (_runningOnStaticIP) return false;
 
         if (ip == 0 || gw == 0 || mask == 0) return false;   // Incorrect network config
 
-        bool res = _configData.ip != ip || _configData.gateway != gw || _configData.netmask != mask;
+        uint32_t ssidHash = _hashSsid(ssid);
+
+        bool res = _configData.ip != ip
+            || _configData.gateway != gw
+            || _configData.netmask != mask
+            || _configData.ssidHash != ssidHash;
         if (!res) return false; // No change
 
         _configData.ip = ip;
         _configData.gateway = gw;
         _configData.netmask = mask;
+        _configData.ssidHash = ssidHash;
         _configData.magic = VALID_DATA_MAGIC;
 
 #if defined(ESP32)
@@ -309,8 +342,17 @@ namespace chrWiFi {
         }
 
         if (!alwaysUseDHCP && _loadNetworkFromRTC()) {
-            bool staticIPApplied =_applyStaticConfig(_configData);
-            if (!staticIPApplied) _applyDhcpConfig();
+            uint32_t currentSsidHash = _hashSsid(savedSsid.c_str());
+
+            // If credentials now point to a different SSID, discard stale static config.
+            if (_configData.ssidHash != 0 && _configData.ssidHash != currentSsidHash) {
+                _clearNetworkFromRTC();
+                _fireEvent(EVENT_NOTICE, "SSID changed: cleared saved IP config");
+                _applyDhcpConfig();
+            } else {
+                bool staticIPApplied = _applyStaticConfig(_configData);
+                if (!staticIPApplied) _applyDhcpConfig();
+            }
         } else {
             _applyDhcpConfig();
         }
@@ -447,7 +489,7 @@ namespace chrWiFi {
                 _fireEvent(EVENT_STATUS, msg);
 
                 if (_currentStatus > WIFI_LOST) {
-                    _saveNetworkToRTCIfChanged((uint32_t)WiFi.localIP(), (uint32_t)WiFi.gatewayIP(), (uint32_t)WiFi.subnetMask());
+                    _saveNetworkToRTCIfChanged((uint32_t)WiFi.localIP(), (uint32_t)WiFi.gatewayIP(), (uint32_t)WiFi.subnetMask(), WiFi.SSID().c_str());
                     _startGwCheck();
                 } else {
                     _stopGwCheck();
