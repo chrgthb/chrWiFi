@@ -138,7 +138,7 @@ void handleWiFiEvent(int8_t code, const char* msg) {
   // This is the easiest way to publish a small control page while the device is online.
   // In AP mode the portal starts automatically, so no need to handle that case here.
   if (code == chrWiFi::EVENT_STATUS) {
-    chrWiFi::Status status = chrWiFi::currentStatus();
+    chrWiFi::Status status = chrWiFi::getStatus();
 
     if (status > chrWiFi::WIFI_LOST) {
       Serial.println("[chrWiFi] STA connected. Starting web portal...");
@@ -160,7 +160,7 @@ void setup() {
   chrWiFi::setup("chrWiFiDemo", "12345678", 5000, 15000, 80);
 
   // Register a global event callback to print all library status messages.
-  chrWiFi::onEvent(handleWiFiEvent);
+  chrWiFi::setEventCallback(handleWiFiEvent);
 
   // Add a small custom HTML fragment to the WiFiManager portal if needed.
   chrWiFi::setCustomMenuHTML("<p><b>chrWiFi Demo</b> - simple WiFi + web portal</p>");
@@ -182,7 +182,7 @@ void loop() {
   if (millis() - lastHeartbeat > 30000) {
     lastHeartbeat = millis();
     Serial.printf("[chrWiFi] current status=%d IP=%s\n",
-                  chrWiFi::currentStatus(),
+                  chrWiFi::getStatus(),
                   WiFi.status() == WL_CONNECTED ? WiFi.localIP().toString().c_str() : "0.0.0.0");
   }
 }

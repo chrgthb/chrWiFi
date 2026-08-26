@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <WiFiManager.h>
+#include <WiFiUdp.h>
 
 #if defined(ESP8266)
     #include <ESP8266WiFi.h>
@@ -35,28 +36,27 @@ namespace chrWiFi {
         EVENT_STATUS = 12
     };
 
+    // --- Callbacks ---
     using EventCallback = std::function<void(int8_t, const char*)>;
 
     // --- Public methods ---
-    void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80);
+    void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true);
     void startAP();
-    void startSta();
+    void startSta(bool alwaysUseDHCP = true);
     void stop();
     void startWebPortal();
     void stopWebPortal();
 
     Status checkStatus();
-    Status currentStatus();
+    Status getStatus();
     Status loop();
     bool otaUpdateStarted();
-
-    uint32_t ipToUint(const IPAddress &ip);
-    IPAddress uintToIP(uint32_t v);
 
     IPAddress getIp();
     char* getApName();
     
-    void onEvent(EventCallback cb);
+    void setEventCallback(EventCallback cb);
+
 
     // --- WebServer methods ---
 

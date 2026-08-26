@@ -9,6 +9,7 @@ It is designed for projects that need:
 - Event-driven status reporting
 - Optional web portal usage while connected in STA mode
 - OTA preparation and failure event notifications
+- Optional use of saved Network addresses on reconnect after a success DHCP connect
 
 The library currently targets the Arduino framework and is tested in this repository with ESP32 (`esp32dev`).
 
@@ -19,7 +20,7 @@ The library currently targets the Arduino framework and is tested in this reposi
 - Config portal and web portal controls
 - Reconnect interval management
 - WiFi signal strength status model
-- Stable/unstable connectivity events
+- Stable/unstable connectivity events (optional unstable detection with simple DNS query)
 - Access to underlying WiFiManager web server for custom endpoints
 
 ## Dependency
@@ -62,11 +63,11 @@ For a full working example with custom HTTP handlers, see [examples/Basic/Basic.
 
 Public methods declared in [src/chrWiFi.h](src/chrWiFi.h):
 
-- `void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80)`
+- `void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true)`
 	- Initializes internal state, sets AP credentials, timing, and web portal port.
 - `void startAP()`
 	- Starts config portal in AP mode.
-- `void startSta()`
+- `void startSta(bool alwaysUseDHCP = true)`
 	- Starts STA connection using saved WiFiManager credentials.
 - `void stop()`
 	- Stops portal/server activity, disconnects WiFi, and switches radio off.
