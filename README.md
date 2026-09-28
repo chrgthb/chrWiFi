@@ -65,6 +65,23 @@ Public methods declared in [src/chrWiFi.h](src/chrWiFi.h):
 
 - `void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true)`
 	- Initializes internal state, sets AP credentials, timing, and web portal port.
+- `char* getApName()`
+	- Returns generated AP name buffer.
+- `IPAddress getIp()`
+	- Checks immediately and only returns current IP.
+	- currentIP() will be refreshed only on next schedule!
+- `IPAddress currentIp()`
+	- Returns the last known IP without checking immediately.
+- `IPAddress getConnectedCount()`
+	- Checks immediately and only returns number of clients connected to AP.
+	- currentConnectedCount() will be refreshed only on next schedule!
+- `IPAddress currentConnectedCount()`
+	- Returns the last known numbers of clients connected to AP without checking immediately.
+- `IPAddress getStatus()`
+	- Checks immediately and only returns current status.
+	- currentStatus() will be refreshed only on next schedule!
+- `IPAddress currentStatus()`
+	- Returns the last known status without checking immediately.
 - `void startAP()`
 	- Starts config portal in AP mode.
 - `void startSta(bool alwaysUseDHCP = true)`
@@ -83,13 +100,7 @@ Public methods declared in [src/chrWiFi.h](src/chrWiFi.h):
 	- Must be called repeatedly; processes WiFiManager and reconnect/status logic.
 - `bool otaUpdateStarted()`
 	- Indicates whether OTA update pre-phase has started.
-- `uint32_t ipToUint(const IPAddress &ip)` / `IPAddress uintToIP(uint32_t v)`
-	- Utility converters.
-- `IPAddress getIp()`
-	- Returns STA local IP or AP IP depending on mode.
-- `char* getApName()`
-	- Returns generated AP name buffer.
-- `void onEvent(EventCallback cb)`
+- `void setEventCallback(EventCallback cb)`
 	- Registers a global event callback.
 - `void setCustomMenuHTML(const char* html)`
 	- Injects custom HTML into WiFiManager menu.
@@ -137,6 +148,8 @@ Typical `EVENT_STATUS` messages include:
 - `signal LOST`
 - `mode: AP`
 - `mode: OFF`
+- `IP: 192.168.0.1`
+- `AP clients: 2`
 
 ## Build
 
