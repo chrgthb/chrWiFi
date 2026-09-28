@@ -75,7 +75,7 @@ Public methods declared in [src/chrWiFi.h](src/chrWiFi.h):
 	- Starts WiFiManager web portal while in STA connected mode.
 - `void stopWebPortal()`
 	- Stops the web portal if active.
-- `Status checkStatus()`
+- `Status getStatus()`
 	- Returns status from current WiFi mode/connection/signal.
 - `Status currentStatus()`
 	- Returns last cached status.

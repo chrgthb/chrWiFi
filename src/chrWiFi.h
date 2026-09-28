@@ -41,22 +41,25 @@ namespace chrWiFi {
 
     // --- Public methods ---
     void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true);
+
+    char* getApName();
+    IPAddress getIP();                  // Checks immediately and returns current IP
+    IPAddress currentIP();              // Returns the last known IP without checking immediately
+    uint8_t getConnectedCount();
+    uint8_t currentConnectedCount();
+    Status getStatus();                 // Checks immediately and returns current status
+    Status currentStatus();             // Returns the last known status without checking immediately
+
     void startAP();
     void startSta(bool alwaysUseDHCP = true);
     void stop();
     void startWebPortal();
     void stopWebPortal();
 
-    Status checkStatus();
-    Status getStatus();
     Status loop();
     bool otaUpdateStarted();
 
-    IPAddress getIp();
-    char* getApName();
-    
     void setEventCallback(EventCallback cb);
-
 
     // --- WebServer methods ---
 
@@ -64,6 +67,6 @@ namespace chrWiFi {
     void setCustomMenuHTML(const char* html);
     // Callback when the WiFiManager internal webserver is created / reset.
     void setWebServerCallback(std::function<void()> cb);
-    // Webserver a további URL-ek működtetéséhez
+    // Webserver to manage additional URLs and handle requests
     WiFiManager::WM_WebServer* webServer();
 } // namespace chrWiFi

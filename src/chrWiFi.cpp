@@ -23,6 +23,8 @@ namespace chrWiFi {
     bool _staConnectedSinceBoot = false;
     uint8_t _staAttemptCount = 0;
     constexpr uint8_t _maxStaAttemptsBeforeApFallback = 5;
+    IPAddress _currentIP;
+    uint8_t _connectedCount = 0;
     // OTA vars
     bool _otaUpdateStarted = false;
     bool _otaUpdateFailed = false;
@@ -130,9 +132,9 @@ namespace chrWiFi {
         bool res = WiFi.config(IPAddress(cfg.ip), IPAddress(cfg.gateway), IPAddress(cfg.netmask));
         if (res) {
             _runningOnStaticIP = true;
-            _fireEvent(EVENT_NOTICE, "STA using saved IP config");
+            _fireEvent(EVENT_NOTICE, "using saved IP");
         } else {
-            _fireEvent(EVENT_WARN, "STA failed to apply saved IP config");
+            _fireEvent(EVENT_WARN, "saved IP set failed");
         }
         return res;
     }
@@ -141,7 +143,7 @@ namespace chrWiFi {
         IPAddress zero(0, 0, 0, 0);
         WiFi.config(zero, zero, zero);
         _runningOnStaticIP = false;
-        _fireEvent(EVENT_NOTICE, "STA using DHCP");
+        _fireEvent(EVENT_NOTICE, "using DHCP");
     }
 
     // MAC methods
@@ -195,7 +197,7 @@ namespace chrWiFi {
     void _startGwCheck() {
         if (!_gwCheck) return;    // GW check disabled
         if (_gwCheckStatus == 0) return;    // Already in progress
-        _fireEvent(EVENT_NOTICE, "checking GW...");
+        _fireEvent(EVENT_NOTICE, "checking GW");
 
         _udp.begin(8888);   // Just a random port
         _udp.beginPacket(WiFi.gatewayIP(), 53);
@@ -208,7 +210,7 @@ namespace chrWiFi {
     void _stopGwCheck() {
         if (!_gwCheck) return;    // GW check disabled
         if (_gwCheckStatus == -2) return;    // Not running, nothing to stop
-        _fireEvent(EVENT_NOTICE, "stopping GW check...");
+        _fireEvent(EVENT_NOTICE, "stopping GW check");
 
         _udp.stop();
         _gwCheckStatus = -2;
@@ -257,7 +259,7 @@ namespace chrWiFi {
     }
 
     void setup(const char* apName, const char* pass, uint32_t statusCheckMs, uint32_t reconnectMs, uint16_t portalPort, bool gwCheck) {
-        _fireEvent(EVENT_NOTICE, "init...");
+        _fireEvent(EVENT_NOTICE, "init");
 
         _gwCheck = gwCheck;
 
@@ -291,8 +293,38 @@ namespace chrWiFi {
         _initOk = true;
         
     }
-    
-    Status checkStatus() {
+
+    char* getApName() {
+        return _apName;
+    }
+
+    IPAddress getIP() {
+        IPAddress ip = IPAddress(0,0,0,0);
+
+        if (WiFi.status() == WL_CONNECTED) {
+            // Client mode
+            ip = WiFi.localIP();
+        } else if (WiFi.getMode() & WIFI_AP) {
+            // AP mode
+            ip = WiFi.softAPIP();
+        }
+
+        return ip;
+    }
+
+    IPAddress currentIP() {
+        return _currentIP;
+    }
+
+    uint8_t getConnectedCount() {
+        return WiFi.softAPgetStationNum();
+    }
+
+    uint8_t currentConnectedCount() {
+        return _connectedCount;
+    }
+
+    Status getStatus() {
         if (WiFi.getMode() == WIFI_OFF) return WIFI_OFF_STATUS;
         if (WiFi.getMode() & WIFI_AP) return WIFI_AP_MODE;
         if (WiFi.status() != WL_CONNECTED) return WIFI_LOST;
@@ -303,20 +335,99 @@ namespace chrWiFi {
         return WIFI_STRONG;
     }
 
-    Status getStatus() {
+    Status currentStatus() {
         return _currentStatus;
     }
 
+    // Checks status and IP, notifies stable/unstable states, starts/stops GW check, saves new STA IP, count connected clients in AP mode
+    void _checkStatus(uint32_t time) {
+        _lastStatusCheck = time;
+        Status oldStatus = _currentStatus;
+        _currentStatus = getStatus();
+        char msg[24] = "";
+
+        // Status change check
+        if (oldStatus != _currentStatus) {
+            switch (_currentStatus) {
+                case WIFI_STRONG:
+                    snprintf(msg, sizeof(msg), "signal STRONG");
+                    _staConnectedSinceBoot = true;
+                    _notifyStable(true, "STA stable");
+                    break;
+                case WIFI_MEDIUM:
+                    snprintf(msg, sizeof(msg), "signal MEDIUM");
+                    _staConnectedSinceBoot = true;
+                    _notifyStable(true, "STA stable");
+                    break;
+                case WIFI_WEAK:
+                    snprintf(msg, sizeof(msg), "signal WEAK");
+                    _staConnectedSinceBoot = true;
+                    _notifyStable(true, "STA stable");
+                    break;
+                case WIFI_LOST:
+                    snprintf(msg, sizeof(msg), "signal LOST");
+                    if (oldStatus != WIFI_OFF_STATUS) {
+                        // There was a connection before, now it's lost
+                        _notifyStable(false, "connection lost");
+                    }
+                    break;
+                case WIFI_AP_MODE:
+                    _runningOnStaticIP = false;
+                    snprintf(msg, sizeof(msg), "mode: AP");
+                    _notifyStable(true, "AP stable");
+                    break;
+                case WIFI_OFF_STATUS:
+                    _runningOnStaticIP = false;
+                    snprintf(msg, sizeof(msg), "mode: OFF");
+                    break;
+            }
+            _fireEvent(EVENT_STATUS, msg);
+        }
+
+        // IP change check
+        IPAddress oldIP = _currentIP;
+        _currentIP = getIP();
+        if (oldIP != _currentIP) {
+            snprintf(msg, sizeof(msg), "IP: %u.%u.%u.%u", _currentIP[0], _currentIP[1], _currentIP[2], _currentIP[3]);
+            _fireEvent(EVENT_STATUS, msg);
+        }
+
+        // IP saving and GW check start/stop
+        if (_currentStatus > WIFI_LOST
+            && (
+                (oldStatus != _currentStatus)
+                ||
+                (oldIP != _currentIP)
+            )
+        ) {
+            _saveNetworkToRTCIfChanged((uint32_t)_currentIP, (uint32_t)WiFi.gatewayIP(), (uint32_t)WiFi.subnetMask(), WiFi.SSID().c_str());
+            _startGwCheck();
+        } else {
+            _stopGwCheck();
+        }
+
+        // Count AP connected clients
+        if (_currentStatus == WIFI_AP_MODE) {
+            uint8_t oldConnectedCount = _connectedCount;
+            _connectedCount = getConnectedCount();
+
+            if (oldConnectedCount != _connectedCount) {
+                snprintf(msg, sizeof(msg), "AP clients: %u", _connectedCount);
+                _fireEvent(EVENT_STATUS, msg);
+            }
+        }
+    }
+    
     void startAP() {
         _shouldBeConnected = false;
         if (!_wm.getConfigPortalActive()) {
-            _notifyStable(false, "start AP...");
+            _notifyStable(false, "starting AP");
             if (!_initOk) setup();
 
             _wm.startConfigPortal(_apName, _apPass);
             
             // Change status immediately
-            _currentStatus = checkStatus();
+            _checkStatus(millis());
         }
     }
 
@@ -331,12 +442,13 @@ namespace chrWiFi {
 
         if (savedSsid.length() == 0) {
             // No saved credentials, fallback to AP
+            _fireEvent(EVENT_WARN, "STA: no saved SSID");
             startAP();
             return;
         }
 
         if (_canFallbackToAp()) {
-            _fireEvent(EVENT_WARN, "STA failed repeatedly, switching to AP");
+            _fireEvent(EVENT_WARN, "switching STA->AP");
             startAP();
             return;
         }
@@ -357,7 +469,7 @@ namespace chrWiFi {
             _applyDhcpConfig();
         }
         
-        _notifyStable(false, "start STA...");
+        _notifyStable(false, "starting STA");
         if (!_initOk) setup();
         
         _shouldBeConnected = true;
@@ -366,14 +478,14 @@ namespace chrWiFi {
         _beginStaConnect(savedSsid.c_str(), savedPass.c_str());
         
         // Change status immediately
-        _currentStatus = checkStatus();
+        _checkStatus(millis());
     }
 
     void stop() {
         _shouldBeConnected = false; // Stop autoreconnect
         
         if (WiFi.getMode() == WIFI_OFF) { return; }
-        _notifyStable(false, "stop...");
+        _notifyStable(false, "stopping");
         
         // Stop config portal if active
         if (_wm.getConfigPortalActive()) {
@@ -382,30 +494,45 @@ namespace chrWiFi {
         stopWebPortal();
 
         WiFi.disconnect(true); // true = turn off radio
+        WiFi.softAPdisconnect(true);
         WiFi.mode(WIFI_OFF);
         
         // Change status immediately
-        _currentStatus = checkStatus();
+        _checkStatus(millis());
     }
 
     void startWebPortal() {
         if (WiFi.getMode() != WIFI_STA || WiFi.status() != WL_CONNECTED) {
-            _fireEvent(EVENT_WARN, "portal start failed: not STA mode / not connected");
+            _fireEvent(EVENT_WARN, "portal start failed: not STA/connected");
             return;
         }
 
         if (!_wm.getWebPortalActive()) {
-            _fireEvent(EVENT_NOTICE, "start portal...");
+            _fireEvent(EVENT_NOTICE, "starting portal");
             _wm.startWebPortal(); 
         }
     }
 
     void stopWebPortal() {
         if (_wm.getWebPortalActive()) {
-            _fireEvent(EVENT_NOTICE, "stop portal...");
+            _fireEvent(EVENT_NOTICE, "stopping portal");
             _wm.stopWebPortal();
         }
         
+    }
+
+    // Reconnects or switches to AP
+    void _reconnect(uint32_t time) {
+        _lastReconnectAttempt = time;
+
+        if (_canFallbackToAp()) {
+            _fireEvent(EVENT_WARN, "switching STA->AP");
+            startAP();
+        } else {
+            _fireEvent(EVENT_NOTICE, "reconnecting");
+            WiFi.mode(WIFI_STA);
+            _beginStaConnect();
+        }
     }
 
     Status loop() {
@@ -414,7 +541,10 @@ namespace chrWiFi {
         _wm.process();
 
         if (_otaUpdateStarted) {
+            // Check error, stop GW check while OTA update is in progress
+            // - early return current status to be as quick as possible
             if (!_otaUpdateFailed && Update.hasError()) {
+                // OTA update failed event
                 _otaUpdateFailed = true;
                 _otaUpdateStarted = false;
                 _fireEvent(EVENT_OTA_FAILED, "OTA update failed");
@@ -424,77 +554,18 @@ namespace chrWiFi {
         }
 
         uint32_t now = millis();
+
         _loopGwCheck();
 
-        // Autoreconnect logika
+        // Auto reconnect logic
         if (_shouldBeConnected && WiFi.status() != WL_CONNECTED && !_wm.getConfigPortalActive()) {
             if (now - _lastReconnectAttempt >= _reconnectInterval) {
-                _lastReconnectAttempt = now;
-
-                if (_canFallbackToAp()) {
-                    _fireEvent(EVENT_WARN, "STA failed repeatedly, switching to AP");
-                    startAP();
-                }
-                else {
-                _fireEvent(EVENT_NOTICE, "reconnect...");
-                WiFi.mode(WIFI_STA);
-                _beginStaConnect(); 
-                }
+                _reconnect(now);
             }
         }
 
-        // Status check
         if (now - _lastStatusCheck >= _statusCheckInterval) {
-            _lastStatusCheck = now;
-            Status oldStatus = _currentStatus;
-            _currentStatus = checkStatus();
-
-            if (oldStatus != _currentStatus) {
-                // New status
-                char msg[24] = "";
-                
-                switch (_currentStatus) {
-                    case WIFI_STRONG:
-                        snprintf_P(msg, sizeof(msg), PSTR("signal STRONG"));
-                        _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
-                        break;
-                    case WIFI_MEDIUM:
-                        snprintf_P(msg, sizeof(msg), PSTR("signal MEDIUM"));
-                        _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
-                        break;
-                    case WIFI_WEAK:
-                        snprintf_P(msg, sizeof(msg), PSTR("signal WEAK"));
-                        _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
-                        break;
-                    case WIFI_LOST:
-                        snprintf_P(msg, sizeof(msg), PSTR("signal LOST"));
-                        if (oldStatus != WIFI_OFF_STATUS) {
-                            // There was a connection before, now it's lost
-                            _notifyStable(false, "connection lost");
-                        }
-                        break;
-                    case WIFI_AP_MODE:
-                        _runningOnStaticIP = false;
-                        snprintf_P(msg, sizeof(msg), PSTR("mode: AP"));
-                        _notifyStable(true, "AP stable");
-                        break;
-                    case WIFI_OFF_STATUS:
-                        _runningOnStaticIP = false;
-                        snprintf_P(msg, sizeof(msg), PSTR("mode: OFF"));
-                        break;
-                }
-                _fireEvent(EVENT_STATUS, msg);
-
-                if (_currentStatus > WIFI_LOST) {
-                    _saveNetworkToRTCIfChanged((uint32_t)WiFi.localIP(), (uint32_t)WiFi.gatewayIP(), (uint32_t)WiFi.subnetMask(), WiFi.SSID().c_str());
-                    _startGwCheck();
-                } else {
-                    _stopGwCheck();
-                }
-            }
+            _checkStatus(now);
         }
 
         return _currentStatus;
@@ -502,27 +573,6 @@ namespace chrWiFi {
 
     bool otaUpdateStarted() {
         return _otaUpdateStarted;
-    }
-
-    IPAddress getIp() {
-        IPAddress ip = IPAddress(0,0,0,0);
-
-        if (WiFi.status() == WL_CONNECTED) {
-            // Client mode
-            ip = WiFi.localIP();
-        } else if (WiFi.getMode() & WIFI_AP) {
-            // AP mode
-            ip = WiFi.softAPIP();
-        }
-
-        char msg[24];
-        snprintf_P(msg, sizeof(msg), PSTR("IP: %u.%u.%u.%u"), ip[0], ip[1], ip[2], ip[3]);
-        _fireEvent(EVENT_NOTICE, msg);
-        return ip;
-    }
-
-    char* getApName() {
-        return _apName;
     }
 
     void setCustomMenuHTML(const char* html) {
