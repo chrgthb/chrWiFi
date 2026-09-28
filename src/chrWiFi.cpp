@@ -389,7 +389,7 @@ namespace chrWiFi {
         _currentIP = getIP();
         if (oldIP != _currentIP) {
             snprintf(msg, sizeof(msg), "IP: %u.%u.%u.%u", _currentIP[0], _currentIP[1], _currentIP[2], _currentIP[3]);
-            _fireEvent(EVENT_STATUS, msg);
+            _fireEvent(EVENT_IP, msg);
         }
 
         // IP saving and GW check start/stop
@@ -413,7 +413,7 @@ namespace chrWiFi {
 
             if (oldConnectedCount != _connectedCount) {
                 snprintf(msg, sizeof(msg), "AP clients: %u", _connectedCount);
-                _fireEvent(EVENT_STATUS, msg);
+                _fireEvent(EVENT_CLIENTS, msg);
             }
         }
     }

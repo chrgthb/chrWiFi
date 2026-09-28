@@ -139,6 +139,8 @@ Signal classification thresholds (RSSI):
 - `EVENT_NOTICE = 10`
 - `EVENT_OTA_PREPARE = 11`
 - `EVENT_STATUS = 12`
+- `EVENT_IP = 13`
+- `EVENT_CLIENTS = 14`
 
 Typical `EVENT_STATUS` messages include:
 
@@ -149,6 +151,14 @@ Typical `EVENT_STATUS` messages include:
 - `mode: AP`
 - `mode: OFF`
 - `IP: 192.168.0.1`
+- `AP clients: 2`
+
+Typical `EVENT_IP` messages include:
+
+- `IP: 192.168.0.1`
+
+Typical `EVENT_CLIENTS` messages include:
+
 - `AP clients: 2`
 
 ## Build

@@ -33,7 +33,9 @@ namespace chrWiFi {
         EVENT_STABLE = 2,
         EVENT_NOTICE = 10,
         EVENT_OTA_PREPARE = 11,
-        EVENT_STATUS = 12
+        EVENT_STATUS = 12,
+        EVENT_IP = 13,
+        EVENT_CLIENTS = 14
     };
 
     // --- Callbacks ---
