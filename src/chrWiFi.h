@@ -43,11 +43,11 @@ namespace chrWiFi {
     void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true);
 
     char* getApName();
-    IPAddress getIP();                  // Checks immediately and returns current IP
+    IPAddress getIP();                  // Checks immediately and only returns current IP (currentIP() will be refreshed only on next schedule!)
     IPAddress currentIP();              // Returns the last known IP without checking immediately
-    uint8_t getConnectedCount();
-    uint8_t currentConnectedCount();
-    Status getStatus();                 // Checks immediately and returns current status
+    uint8_t getConnectedCount();        // Checks immediately and only returns current connected count (currentConnectedCount() will be refreshed only on next schedule!)
+    uint8_t currentConnectedCount();    // Returns the last known connected count without checking immediately
+    Status getStatus();                 // Checks immediately and only returns current status (currentstatus() will be refreshed only on next schedule!)
     Status currentStatus();             // Returns the last known status without checking immediately
 
     void startAP();
