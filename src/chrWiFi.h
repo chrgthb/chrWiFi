@@ -44,7 +44,7 @@ namespace chrWiFi {
     // --- Public methods ---
     void setup(const char* apName = nullptr, const char* pass = nullptr, uint32_t statusCheckMs = 5387, uint32_t reconnectMs = 30000, uint16_t portalPort = 80, bool gwCheck = true);
 
-    char* getApName();
+    const char* getApName();
     IPAddress getIP();                  // Checks immediately and only returns current IP (currentIP() will be refreshed only on next schedule!)
     IPAddress currentIP();              // Returns the last known IP without checking immediately
     uint8_t getConnectedCount();        // Checks immediately and only returns current connected count (currentConnectedCount() will be refreshed only on next schedule!)
