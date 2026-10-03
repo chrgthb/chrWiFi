@@ -49,7 +49,7 @@ namespace chrWiFi {
         bool _gwCheck = true;
         WiFiUDP _udp;
         unsigned long _gwCheckStartTime = 0;
-        int8_t _gwCheckStatus = -2;             // 0 = in progress, 1 = GW alive, -1 = timeout, -2 = not running
+        GWStateCode _gwCheckStatus = GW_NOT_RUNNING;
         // - minimal DNS query for the root "." server
         constexpr uint8_t _DNS_QUERY[] = {
             0xAA, 0xAA, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 
@@ -57,8 +57,8 @@ namespace chrWiFi {
         };
         
         // --- Private methods ---
-        void _fireEvent(int8_t code, const char* msg) {
-            if (_onEvent) _onEvent(code, msg);
+        void _fireEvent(int8_t code) {
+            if (_onEvent) _onEvent(code);
         }
         
         // No DHCP methods
@@ -130,9 +130,9 @@ namespace chrWiFi {
             bool res = WiFi.config(IPAddress(cfg.ip), IPAddress(cfg.gateway), IPAddress(cfg.netmask));
             if (res) {
                 _runningOnStaticIP = true;
-                _fireEvent(EVENT_NOTICE, "using saved IP");
+                _fireEvent(EVENT_NOTICE_DHCP);
             } else {
-                _fireEvent(EVENT_WARN, "saved IP set failed");
+                _fireEvent(EVENT_WARN_IP_SAVE);
             }
             return res;
         }
@@ -141,7 +141,7 @@ namespace chrWiFi {
             IPAddress zero(0, 0, 0, 0);
             WiFi.config(zero, zero, zero);
             _runningOnStaticIP = false;
-            _fireEvent(EVENT_NOTICE, "using DHCP");
+            _fireEvent(EVENT_NOTICE_DHCP);
         }
         
         // MAC methods
@@ -162,11 +162,11 @@ namespace chrWiFi {
         
         // Stable/unstable event deduplication
         bool _lastStable = false;
-        void _notifyStable(bool stable, const char* msg) {
+        void _notifyStable(bool stable) {
             if (stable == _lastStable) return;
             _lastStable = stable;
-            if (stable) _fireEvent(EVENT_STABLE, msg);
-            else _fireEvent(EVENT_UNSTABLE, msg);
+            if (stable) _fireEvent(EVENT_STABLE);
+            else _fireEvent(EVENT_UNSTABLE);
         }
     
         bool _canFallbackToAp() {
@@ -194,8 +194,7 @@ namespace chrWiFi {
         // GW check with DNS query to root server
         void _startGwCheck() {
             if (!_gwCheck) return;    // GW check disabled
-            if (_gwCheckStatus == 0) return;    // Already in progress
-            _fireEvent(EVENT_NOTICE, "checking GW");
+            if (_gwCheckStatus == GW_IN_PROGRESS) return;    // Already in progress
     
             _udp.begin(8888);   // Just a random port
             _udp.beginPacket(WiFi.gatewayIP(), 53);
@@ -203,20 +202,21 @@ namespace chrWiFi {
             _udp.endPacket();   // UDP query send ARP if needed
     
             _gwCheckStartTime = millis();
-            _gwCheckStatus = 0;
+            _gwCheckStatus = GW_IN_PROGRESS;
+            _fireEvent(EVENT_NOTICE_GW);
         }
         void _stopGwCheck() {
             if (!_gwCheck) return;    // GW check disabled
-            if (_gwCheckStatus == -2) return;    // Not running, nothing to stop
-            _fireEvent(EVENT_NOTICE, "stopping GW check");
+            if (_gwCheckStatus == GW_NOT_RUNNING) return;    // Not running, nothing to stop
     
             _udp.stop();
-            _gwCheckStatus = -2;
+            _gwCheckStatus = GW_NOT_RUNNING;
+            _fireEvent(EVENT_NOTICE_GW);
         }
         
         void _loopGwCheck() {
             if (!_gwCheck) return;    // GW check disabled
-            if (_gwCheckStatus != 0) return;    // Only proceed if GW check is in progress
+            if (_gwCheckStatus != GW_IN_PROGRESS) return;    // Only proceed if GW check is in progress
     
             if (WiFi.getMode() != WIFI_STA || WiFi.status() != WL_CONNECTED) {
                 // Maybe the current status changed
@@ -226,17 +226,16 @@ namespace chrWiFi {
     
             // Check if data received
             if (_udp.parsePacket() > 0) {
-                _notifyStable(true, "GW is alive");
                 _udp.stop();
-    
-                _gwCheckStatus = 1;
+                _gwCheckStatus = GW_ALIVE;
+                _notifyStable(true);
                 return;
             }
     
             // Check timeout (500ms should be more than enough)
             if (millis() - _gwCheckStartTime > 500) {
                 _udp.stop();
-                _notifyStable(false, "GW check timed out");
+                _gwCheckStatus = GW_TIMEOUT;
     
                 if (_runningOnStaticIP) {
                     // Retry STA connection with DHCP configuration
@@ -245,7 +244,7 @@ namespace chrWiFi {
                     _beginStaConnect();
                 }
     
-                _gwCheckStatus = -1;
+                _notifyStable(false);
                 return;
             }
         }
@@ -253,15 +252,38 @@ namespace chrWiFi {
         void _onPreOtaUpdate() {
             _otaUpdateStarted = true;
             _otaUpdateFailed = false;
-            _fireEvent(EVENT_OTA_PREPARE, "OTA update started");
+            _fireEvent(EVENT_OTA_PREPARE);
         }
     }
 
     // --- Public methods ---
     void setEventCallback(EventCallback cb) { _onEvent = cb; }
 
+    const char* eventName(EventCode code) {
+    switch (code) {
+        case EVENT_ERR:                 return "error";
+        case EVENT_WARN_OTA_FAILED:     return "OTA failed";
+        case EVENT_WARN_PORTAL:         return "portal failed: not connected";
+        case EVENT_WARN_MODE:           return "mode switch AP/STA";
+        case EVENT_WARN_NO_SSID:        return "STA warning: no SSID";
+        case EVENT_WARN_IP_SAVE:        return "IP save failed";
+        case EVENT_UNSTABLE:            return "unstable";
+        case EVENT_INIT:                return "init";
+        case EVENT_STABLE:              return "stable";
+        case EVENT_NOTICE_DHCP:         return "DHCP/static status";
+        case EVENT_NOTICE_GW:           return "GW check status";
+        case EVENT_NOTICE_SSID:         return "SSID changed";
+        case EVENT_NOTICE_PORTAL:       return "Portal status";
+        case EVENT_NOTICE_RECONNECT:    return "reconnecting";
+        case EVENT_STATUS:              return "status changed";
+        case EVENT_IP:                  return "IP changed";
+        case EVENT_CLIENTS:             return "clients status";
+    }
+    return "unknown";
+}
+
     void setup(const char* apName, const char* pass, uint32_t statusCheckMs, uint32_t reconnectMs, uint16_t portalPort, bool gwCheck) {
-        _fireEvent(EVENT_NOTICE, "init");
+        _fireEvent(EVENT_INIT);
 
         _gwCheck = gwCheck;
 
@@ -340,6 +362,22 @@ namespace chrWiFi {
     Status currentStatus() {
         return _currentStatus;
     }
+    
+    bool usingStaticIP() {
+        return _runningOnStaticIP;
+    }
+
+    GWStateCode getGwCheckStatus() {
+        return _gwCheckStatus;
+    }
+
+    String getSSID() {
+        return WiFi.SSID();
+    }
+
+    bool getPortalStatus() {
+        return _wm.getWebPortalActive();
+    }
 
     namespace {
         // Checks status and IP, notifies stable/unstable states, starts/stops GW check, saves new STA IP, count connected clients in AP mode
@@ -347,53 +385,43 @@ namespace chrWiFi {
             _lastStatusCheck = time;
             Status oldStatus = _currentStatus;
             _currentStatus = getStatus();
-            char msg[24] = "";
     
             // Status change check
             if (oldStatus != _currentStatus) {
                 switch (_currentStatus) {
                     case WIFI_STRONG:
-                        snprintf(msg, sizeof(msg), "signal STRONG");
                         _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
+                        _notifyStable(true);
                         break;
                     case WIFI_MEDIUM:
-                        snprintf(msg, sizeof(msg), "signal MEDIUM");
                         _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
+                        _notifyStable(true);
                         break;
                     case WIFI_WEAK:
-                        snprintf(msg, sizeof(msg), "signal WEAK");
                         _staConnectedSinceBoot = true;
-                        _notifyStable(true, "STA stable");
+                        _notifyStable(true);
                         break;
                     case WIFI_LOST:
-                        snprintf(msg, sizeof(msg), "signal LOST");
                         if (oldStatus != WIFI_OFF_STATUS) {
                             // There was a connection before, now it's lost
-                            _notifyStable(false, "connection lost");
+                            _notifyStable(false);
                         }
                         break;
                     case WIFI_AP_MODE:
                         _runningOnStaticIP = false;
-                        snprintf(msg, sizeof(msg), "mode: AP");
-                        _notifyStable(true, "AP stable");
+                        _notifyStable(true);
                         break;
                     case WIFI_OFF_STATUS:
                         _runningOnStaticIP = false;
-                        snprintf(msg, sizeof(msg), "mode: OFF");
                         break;
                 }
-                _fireEvent(EVENT_STATUS, msg);
+                _fireEvent(EVENT_STATUS);
             }
     
             // IP change check
             IPAddress oldIP = _currentIP;
             _currentIP = getIP();
-            if (oldIP != _currentIP) {
-                snprintf(msg, sizeof(msg), "IP: %u.%u.%u.%u", _currentIP[0], _currentIP[1], _currentIP[2], _currentIP[3]);
-                _fireEvent(EVENT_IP, msg);
-            }
+            if (oldIP != _currentIP) _fireEvent(EVENT_IP);
     
             // IP saving and GW check start/stop
             if (_currentStatus > WIFI_LOST
@@ -414,10 +442,7 @@ namespace chrWiFi {
                 uint8_t oldConnectedCount = _connectedCount;
                 _connectedCount = getConnectedCount();
     
-                if (oldConnectedCount != _connectedCount) {
-                    snprintf(msg, sizeof(msg), "AP clients: %u", _connectedCount);
-                    _fireEvent(EVENT_CLIENTS, msg);
-                }
+                if (oldConnectedCount != _connectedCount) _fireEvent(EVENT_CLIENTS);
             }
         }
     }
@@ -425,7 +450,7 @@ namespace chrWiFi {
     void startAP() {
         _shouldBeConnected = false;
         if (!_wm.getConfigPortalActive()) {
-            _notifyStable(false, "starting AP");
+            _notifyStable(false);
             if (!_initOk) setup();
 
             _wm.startConfigPortal(_apName, _apPass);
@@ -446,13 +471,13 @@ namespace chrWiFi {
 
         if (savedSsid.length() == 0) {
             // No saved credentials, fallback to AP
-            _fireEvent(EVENT_WARN, "STA: no saved SSID");
+            _fireEvent(EVENT_WARN_NO_SSID);
             startAP();
             return;
         }
 
         if (_canFallbackToAp()) {
-            _fireEvent(EVENT_WARN, "switching STA->AP");
+            _fireEvent(EVENT_WARN_MODE);
             startAP();
             return;
         }
@@ -463,7 +488,7 @@ namespace chrWiFi {
             // If credentials now point to a different SSID, discard stale static config.
             if (_configData.ssidHash != 0 && _configData.ssidHash != currentSsidHash) {
                 _clearNetworkFromRTC();
-                _fireEvent(EVENT_NOTICE, "SSID changed: cleared saved IP config");
+                _fireEvent(EVENT_NOTICE_SSID);
                 _applyDhcpConfig();
             } else {
                 bool staticIPApplied = _applyStaticConfig(_configData);
@@ -473,7 +498,7 @@ namespace chrWiFi {
             _applyDhcpConfig();
         }
         
-        _notifyStable(false, "starting STA");
+        _notifyStable(false);
         if (!_initOk) setup();
         
         _shouldBeConnected = true;
@@ -489,7 +514,7 @@ namespace chrWiFi {
         _shouldBeConnected = false; // Stop autoreconnect
         
         if (WiFi.getMode() == WIFI_OFF) { return; }
-        _notifyStable(false, "stopping");
+        _notifyStable(false);
         
         // Stop config portal if active
         if (_wm.getConfigPortalActive()) {
@@ -507,20 +532,20 @@ namespace chrWiFi {
 
     void startWebPortal() {
         if (WiFi.getMode() != WIFI_STA || WiFi.status() != WL_CONNECTED) {
-            _fireEvent(EVENT_WARN, "portal start failed: not STA/connected");
+            _fireEvent(EVENT_WARN_PORTAL);
             return;
         }
 
         if (!_wm.getWebPortalActive()) {
-            _fireEvent(EVENT_NOTICE, "starting portal");
             _wm.startWebPortal(); 
+            _fireEvent(EVENT_NOTICE_PORTAL);
         }
     }
 
     void stopWebPortal() {
         if (_wm.getWebPortalActive()) {
-            _fireEvent(EVENT_NOTICE, "stopping portal");
             _wm.stopWebPortal();
+            _fireEvent(EVENT_NOTICE_PORTAL);
         }
         
     }
@@ -531,10 +556,10 @@ namespace chrWiFi {
             _lastReconnectAttempt = time;
     
             if (_canFallbackToAp()) {
-                _fireEvent(EVENT_WARN, "switching STA->AP");
+                _fireEvent(EVENT_WARN_MODE);
                 startAP();
             } else {
-                _fireEvent(EVENT_NOTICE, "reconnecting");
+                _fireEvent(EVENT_NOTICE_RECONNECT);
                 WiFi.mode(WIFI_STA);
                 _beginStaConnect();
             }
@@ -553,7 +578,7 @@ namespace chrWiFi {
                 // OTA update failed event
                 _otaUpdateFailed = true;
                 _otaUpdateStarted = false;
-                _fireEvent(EVENT_OTA_FAILED, "OTA update failed");
+                _fireEvent(EVENT_WARN_OTA_FAILED);
             }
             _stopGwCheck();
             return _currentStatus;
@@ -593,4 +618,4 @@ namespace chrWiFi {
         return _wm.server.get();
     }
 
-} // namespace chrWiFi
+}

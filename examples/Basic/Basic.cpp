@@ -131,8 +131,45 @@ void registerWebHandlers() {
   Serial.println("[chrWiFi] Web handlers registered.");
 }
 
-void handleWiFiEvent(int8_t code, const char* msg) {
-  Serial.printf("[chrWiFi] event=%d msg=%s\n", code, (msg != nullptr) ? msg : "null");
+void handleWiFiEvent(int8_t code) {
+  auto event = static_cast<chrWiFi::EventCode>(code);
+  Serial.printf("[chrWiFi] event=%d (%s)", code, chrWiFi::eventName(event));
+
+  switch (event) {
+    case chrWiFi::EVENT_STATUS:
+    case chrWiFi::EVENT_STABLE:
+    case chrWiFi::EVENT_UNSTABLE:
+      Serial.printf(" status=%d", chrWiFi::currentStatus());
+      if (event == chrWiFi::EVENT_STABLE || event == chrWiFi::EVENT_UNSTABLE) {
+        Serial.printf(" gateway=%d", chrWiFi::getGwCheckStatus());
+      }
+      break;
+    case chrWiFi::EVENT_IP: {
+      String ip = chrWiFi::currentIP().toString();
+      Serial.printf(" ip=%s", ip.c_str());
+      break;
+    }
+    case chrWiFi::EVENT_CLIENTS:
+      Serial.printf(" clients=%u", chrWiFi::currentConnectedCount());
+      break;
+    case chrWiFi::EVENT_NOTICE_DHCP:
+      Serial.printf(" staticIP=%s", chrWiFi::usingStaticIP() ? "yes" : "no");
+      break;
+    case chrWiFi::EVENT_NOTICE_GW:
+      Serial.printf(" gateway=%d", chrWiFi::getGwCheckStatus());
+      break;
+    case chrWiFi::EVENT_NOTICE_SSID: {
+      String ssid = chrWiFi::getSSID();
+      Serial.printf(" ssid=%s", ssid.c_str());
+      break;
+    }
+    case chrWiFi::EVENT_NOTICE_PORTAL:
+      Serial.printf(" active=%s", chrWiFi::getPortalStatus() ? "yes" : "no");
+      break;
+    default:
+      break;
+  }
+  Serial.println();
 
   // When the module is in STA mode and connected, start the portal/web server.
   // This is the easiest way to publish a small control page while the device is online.
@@ -155,12 +192,12 @@ void setup() {
   Serial.println("\n=== chrWiFi example ===");
   Serial.println("The library handles WiFi mode selection, event callbacks, and web portal setup.");
 
+  // Register before setup so the initialization event is observed too.
+  chrWiFi::setEventCallback(handleWiFiEvent);
+
   // Basic init. The AP name is built automatically from a base name plus MAC suffix.
   // The default password is also accepted as a fallback for the config portal.
   chrWiFi::setup("chrWiFiDemo", "12345678", 5000, 15000, 80);
-
-  // Register a global event callback to print all library status messages.
-  chrWiFi::setEventCallback(handleWiFiEvent);
 
   // Add a small custom HTML fragment to the WiFiManager portal if needed.
   chrWiFi::setCustomMenuHTML("<p><b>chrWiFi Demo</b> - simple WiFi + web portal</p>");
